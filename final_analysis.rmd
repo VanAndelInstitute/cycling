@@ -16,12 +16,33 @@ library(extrafont)
 loadfonts()
 ```
 
+## Introduction
+
+This document was prepared in support of our paper:
+
+<center>
+<b>Isolation of cardiomyocytes undergoing mitosis with complete cytokinesis.</b>
+
+Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort M.D. M.S.1,2†, and Stefan Jovinge MD Ph.D1,3,4*
+
+†Equal contribution
+
+</center>
+
+This document documents how the gene expression data was analyzed and the figures produced or 
+this manuscript. The source file (`data_analysis.rmd`) for this document and 
+supporting data files are available from 
+[the project github repository](https://github.com/vanandelinstitute/cycling). 
+Compiling (kniting) the source document in RStudio (or from the command line) 
+will regenerate key panes off figures 5 and 6 from the source data as they appear in the manuscript. Note that due to the large data files, cloning the repository 
+requires that you have [large file support for git](https://git-lfs.github.com) 
+installed.  Otherwise, you will only receive the soft links to the data files, not the data files themselves.
+
 ## Pre-requisites
 
 This analysis requires a number of packages to complete, most notably AUCell, scde, and 
 cellRangerRkit (which is no longer supported by 10XGenomics, but is still available on 
-the internet). These dependencies may be installed as follows. First some system libraries
-must be installed from the command line.
+the internet). These dependencies may be installed as follows. First some system libraries must be installed from the command line.
 
 ```{bash, eval=FALSE}
 
@@ -72,7 +93,7 @@ loadAll <- function() {
 suppressMessages(loadAll())
 ```
 
-# Background
+## Background
 Pharmacologic and interventional advances over the past two decades have
 produced a substantial reduction in mortality related to coronary artery disease
 (CAD).  However, while mortality is on the decline, prevalance of the sequelae
@@ -95,7 +116,7 @@ identify and chracterize a population of cardimoyocytes enriched for cells with
 proliferative potential.
 
 
-# Differential gene expression analysis
+## Differential gene expression analysis
 Here we use the `pagoda2` package to normalize the gene counts and then identify
 genes that are (1) differentially expressed between each group of cells vs. the
 other groups and (2) also on average more highly expressed in each group vs.
