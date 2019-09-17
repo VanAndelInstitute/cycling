@@ -1,0 +1,474 @@
+---
+title: "scRNASeq analysis of cycling cardiomyocytes"
+author: "Jovinge Lab"
+date: "5/16/2018"
+output:
+  BiocStyle::html_document:
+    toc_float: true
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(root.dir = "/mnt/data/scratch/christy/AGG/outs")
+
+font_family <- "Times New Roman"
+library(extrafont)
+loadfonts()
+```
+
+## Pre-requisites
+
+This analysis requires a number of packages to complete, most notably AUCell, scde, and 
+cellRangerRkit (which is no longer supported by 10XGenomics, but is still available on 
+the internet). These dependencies may be installed as follows. First some system libraries
+must be installed from the command line.
+
+```{bash, eval=FALSE}
+
+# Note that scde relies on Cairo, which in turn relies on the cairo and 
+# libxt dev files.
+# on debian they may be installed as:
+sudo apt-get install libcairo2-dev
+sudo apt-get install libxt-dev
+
+```
+
+Then the required R packages can be installed within an R session.
+
+```{r, eval=FALSE}
+devtools::install_github("hb-gitified/cellrangerRkit")
+devtools::install_github("hms-dbmi/pagoda2")
+
+setRepositories(ind=c(1,2,3,4))
+install.packages("scde")
+install.packages("AUCell")
+install.packages("doRNG")
+install.packages("extrafont")
+
+```
+
+The required packages can then be loaded. If the following fails with an 
+error, additional libraries may be missing on your system but should be 
+readily installed with `install.packages(...)`.
+
+
+```{r, eval=TRUE}
+
+loadAll <- function() {
+  library(reshape2)
+  library(org.Hs.eg.db)
+  library(cellrangerRkit)
+  library(scde)
+  library(DOSE)
+  library(clusterProfiler)
+  library(AUCell)
+  library(pagoda2)
+  library(ggplot2)
+  library(ggpubr)
+  library(grid)
+  library(gridExtra)
+}
+
+suppressMessages(loadAll())
+```
+
+# Background
+Pharmacologic and interventional advances over the past two decades have
+produced a substantial reduction in mortality related to coronary artery disease
+(CAD).  However, while mortality is on the decline, prevalance of the sequelae
+of CAD--most notably dilated cardiomyopathy and heart failure--are on the rise.
+Restoration of function among patient experiencing ischemia or infarct related
+to CAD requires replenishment of cardiomyocytes within the failing myocardium.
+Our past work has demonstrated that the heart has only limited regenerative
+capacity in this regard.  Therefore, it is of utmost importance to be able to
+identify those cardiomyocytes with proflierative potential, either for the
+purposes of local delivery of these cells or to identify new pharmacologic
+strategies for stimulating cardiomyocyte profiferation.
+
+Conventional markers of cell cycle progression based on DNA content are not
+useful for identifying proliferating cardiomoycytes.  This is due to the fact
+that while cardiomyocytes rarely complete cell division, they commonly enter the
+cell cycle but arrest prior to cytokinesis.
+
+Here we combine molecular beacon technology with single cell RNASeq profiling to
+identify and chracterize a population of cardimoyocytes enriched for cells with
+proliferative potential.
+
+
+# Differential gene expression analysis
+Here we use the `pagoda2` package to normalize the gene counts and then identify
+genes that are (1) differentially expressed between each group of cells vs. the
+other groups and (2) also on average more highly expressed in each group vs.
+both the other groups.  We will restrict our analysis to cells that are TMEM88
+or TNNT2 positive (cardiomyocytes and/or cardiomyocyte progenitors).
+
+The code below shows how the raw counts were extracted from the 10X Chromium run 
+and how they were filtered. The raw output from the 10X Chromium pipeline is not 
+provided here due to file size, but this repository contains the filtered raw 
+counts for use in both the pagoda and AUCell analyses below.
+
+```{r, echo=TRUE, eval=FALSE}
+
+root <- "./final_data/outs/"
+
+countMatrix <- read.10x.matrices(
+  paste0(root, "filtered_gene_bc_matrices_mex/GRCh38/")
+)
+cd <- clean.counts(as.matrix(countMatrix), 
+                   min.lib.size=1000, 
+                   min.reads = 1, 
+                   min.detected = 1)
+cd <- apply(cd, 2, function(x) { storage.mode(x) <- 'integer'; x})
+colnames(cd) <- gsub("^.*_", "", colnames(cd))
+
+# restrict to cardiomyocytes or cardiomyocyte precursors
+ix <-  which(rownames(cd) == "TMEM88")[1]
+ix2 <-  which(rownames(cd) == "TNNT2")[1]
+cd <- cd[, which(cd[ix,] > 0 | cd[ix2,] > 0)]
+
+# these raw counts are used later by AUCell
+saveRDS(cd, "final_data/filtered_count_matrix.rds")
+
+#normalize and filter using pagoda defaults
+counts <- gene.vs.molecule.cell.filter(cd)
+#counts <- counts[ rowSums(as.matrix(counts)) >= 10,]
+rownames(counts) <- make.unique(rownames(counts))
+saveRDS(counts, file="final_data/counts.rds")
+pag <- Pagoda2$new(counts, log.scale = TRUE, n.cores = 8)
+pag$adjustVariance(plot = FALSE, gam.k = 10)
+pag <- saveRDS(pag, file="final_data/pagoda_object.rds")
+```
+
+We can then load the cell annotations (cell cycle and CDC level as 
+quantified by molecular beacons) from the provided metadata file 
+and identify differentially expressed genes between the cell populations.
+
+The resulting pagoda data object is saved to file for future reference.
+
+```{r, eval=FALSE, results='hide'}
+
+# identify differentially expressed genes
+pd <- readRDS("final_data/cycling_metadata.rds")
+sg <- pd$type_cdc20
+sg <- sg[which(pd$barcode %in% rownames(pag$counts))]
+names(sg) <- rownames(pag$counts)
+sg <- factor(sg)
+sg2 <- pd$type
+sg2 <- sg2[which(pd$barcode %in% rownames(pag$counts))]
+sg2 <- factor(sg2)
+
+pag$misc$groups <- sg
+pag$getDifferentialGenes(groups = pag$misc$groups, upregulated.only = FALSE, z.threshold=0)
+saveRDS(pag, file="final_data/pagoda_object.rds")
+
+```
+
+A volcano plot of this analysis was generated as follows, 
+which is presented in the manuscript as supplemental figure 4a. 
+
+```{r}
+pag <- readRDS(file="final_data/pagoda_object.rds")
+oe <- pag$diffgenes$counts$customClustering$G2M_pos
+pv <- 2*pnorm(-abs(oe$Z))
+pv.adj <- p.adjust(pv, "BH")
+
+color <- rep("dark gray", nrow(oe))
+color[oe$M < -0.5849625 & pv.adj < 0.001] <- "#00B2FF"
+color[oe$M > 0.5849625 & pv.adj < 0.001] <- "red"
+dat <- data.frame(logFC = oe$M, logP = -log10(pv.adj), color=color)
+
+ggplot(dat, aes(x = logFC, y = logP, color = color)) +
+  scale_colour_manual(values = c("#00B2FF", "dark gray", "red")) +
+  geom_point(size = 1, alpha = 1, na.rm = T) + 
+  scale_y_continuous(trans = "log1p") + 
+  ylab(expression(-log[10]("FDR"))) +
+  xlab(expression(log[2]("Fold Change"))) +
+  geom_hline(yintercept = 3, colour="#990000", linetype="dashed") + 
+  geom_vline(xintercept = 0.5849625, colour="#990000", linetype="dashed") + 
+  geom_vline(xintercept = -0.5849625, colour="#990000", linetype="dashed") +
+  xlim(-2, 2) +
+  theme_bw() +
+  theme(legend.position = 'none') 
+
+ix <- which(oe$M > 0.5849625 & pv.adj < 0.001)
+ix.d <- which(oe$M <= -0.5849625 & pv.adj <= 0.001)
+```
+
+The most significant 25 genes are listed in the table below.
+
+```{r, results = "asis"}
+knitr::kable(oe[1:25,], caption = "Genes up-regulated in CDC20+ cells")
+```
+
+
+## Functional Analysis
+
+### Cell cycle gene enrichment
+
+We can examine the functional the differentially expressed genes identified 
+above by calculating enrichment in GO terms via the hypergeometric test. 
+The most enriched terms are shown in the figure 5b & c, generated below.
+
+```{r, echo = TRUE}
+
+
+# note that using SYMBOLS causes enrichGO to fail (as it tries to convert 
+# the SYMBOLS to SYMBOLS which results in fewer columns of gene ids than 
+# the function expects).  So we convert to entrez gene id.
+
+symToEg <- function(x) {
+  ix <- which(x %in% ls(org.Hs.egSYMBOL2EG))
+  eg <- unlist(mget(x[ix], org.Hs.egSYMBOL2EG))
+  return(unique(eg))
+}
+
+bg <- colnames(pag$counts)
+oe <- pag$diffgenes$counts$customClustering$G2M_pos
+oe.sig.up <- rownames(oe[ix,])
+oe.sig.down <- rownames(oe[ix.d,])
+
+
+ego.u <- enrichGO(gene = symToEg(oe.sig.up), 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+
+pdf(file="fig5b.pdf", width = 2500/300, height=2500/300, family = font_family)
+g <- dotplot(ego.u, showCategory=30)  
+print(g)
+dev.off()
+
+ego.d <- enrichGO(gene = symToEg(oe.sig.down), 
+                OrgDb = org.Hs.eg.db, 
+                ont = "BP", 
+                pAdjustMethod = "BH", 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+                
+pdf(file="fig5c.pdf", width = 2800/300, height=1500/300, family = font_family)
+g <- dotplot(ego.d, showCategory=30) 
+print(g)
+dev.off()
+
+```
+
+We can further analyze the functional difference in these cells by performing 
+gene set enrichment analysis (via the AUCell algorithm) using established cell 
+cycle signature. To begin, we define a plotting function for AUC scores to color 
+by cell group and facet by signature.
+
+```{r}
+plot_auc <- function(data, title = " ", comparisons) {
+  ttest2 <- function(a, b) {
+    p <- t.test(a,b)$p.value
+    p <- ifelse(p < 0.0001, "<0.0001", round(p,4))
+    p <- ifelse(p > 0.05, "ns", p)
+    list(p.value=p)
+  }
+  
+  p <- ggplot(data, aes(class, value)) +
+    geom_jitter(aes(color = class), 
+                height = 0.01, 
+                width = 0.1, 
+                alpha = 0.5, 
+                shape = 20, size = 1) +
+    geom_violin(alpha = 0.3) +
+    ggsignif::geom_signif(comparisons = comparisons, family = font_family,
+                          textsize = 3,
+                          vjust = -.2,
+                          step_increase = .18,
+                          test=ttest2) +
+    theme_bw() + 
+    scale_y_continuous(expand = c(0.2, 0)) +
+    ggtitle(title) +
+    theme(axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank()) +
+    ylab("AUC Enrichment Score") +
+    facet_wrap(~variable, 
+               ncol = 3, 
+               scales = "fixed")
+  p
+  
+}
+
+
+```
+
+We then load the cell cycle signatures defined by McCarroll et al. and Glotzer et al,
+calculate enrichment scores for each signature and each cell and plot results. 
+
+```{r, results = 'hide', message = FALSE}
+
+tab2sig <- function(file) {
+  data <- read.delim(file, as.is=TRUE, stringsAsFactors = FALSE, header=TRUE)
+  res <- apply(data, 2, function (x) {
+    x <- gsub(" ", "", x)
+    x <- x[which(x != "")]
+  })
+  res
+}
+
+cd <- readRDS("final_data/filtered_count_matrix.rds")
+pd <- readRDS("final_data/cycling_metadata.rds")
+sg <- pd$type_cdc20
+sg <- sg[which(pd$barcode %in% colnames(cd))]
+names(sg) <- colnames(cd)
+sg <- factor(sg)
+
+sg2 <- pd$type
+sg2 <- sg2[which(pd$barcode %in% colnames(cd))]
+names(sg2) <- colnames(cd)
+sg2 <- factor(sg2)
+
+auc_mccaroll <- function() {
+  sigs <- tab2sig("final_data/signatures/cell_cycle_mccarroll.txt")
+  cells_rankings <- AUCell_buildRankings(cd, nCores=12, plotStats=FALSE)
+  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
+  dat <- as.data.frame(t(getAUC(cells_AUC)))
+  dat$class <- sg
+  dat <- melt(dat, id.vars = c("class"))
+  dat$class <- factor(dat$class, labels = c("G1-CDC20-", 
+                                        "G2/M-CDC20-", 
+                                        "G2/M-CDC20+"))
+  comparisons <- list( c("G2/M-CDC20+", "G2/M-CDC20-"),  
+                   c("G1-CDC20-", "G2/M-CDC20-"), 
+                   c("G1-CDC20-", "G2/M-CDC20+"))
+
+  plot_auc(dat, comparisons = comparisons) +
+    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
+                                  expression(paste("G1/M CDC20"^low)),
+                                  expression(paste("G1/M CDC20"^high))))+
+    theme(legend.text.align = 0) +
+    labs(color="")
+}
+
+pdf(file="fig5a.pdf", width = 2000/300, height=1800/300, family = font_family)
+p <- auc_mccaroll() +
+      guides(color = guide_legend(override.aes = list(size = 4)))
+print(p)
+dev.off()
+
+auc_glotzer <- function() {
+  sigs <- tab2sig("final_data/signatures/CYTOKINESES_GLOTZER.txt")
+  sigs <- as.data.frame(sigs)
+  cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
+  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
+  dat <- as.data.frame(t(getAUC(cells_AUC)))
+  dat$class <- sg
+  dat <- melt(dat, id.vars = c("class"))
+  dat$class <- factor(dat$class, labels = c("G1-CDC20-", 
+                                        "G2/M-CDC20-", 
+                                        "G2/M-CDC20+"))
+  comparisons <- list( c("G2/M-CDC20+", "G2/M-CDC20-"),  
+                   c("G1-CDC20-", "G2/M-CDC20-"), 
+                   c("G1-CDC20-", "G2/M-CDC20+"))
+  plot_auc(dat, title=" ", comparisons = comparisons) + 
+    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
+                                  expression(paste("G1/M CDC20"^low)),
+                                  expression(paste("G1/M CDC20"^high))))+
+    theme(legend.text.align = 0)
+}
+
+pdf(file="fig5d.pdf", width = 1000/300, height=900/300, family = font_family)
+p <- auc_glotzer() +
+    labs(color="") + 
+    guides(color = guide_legend(override.aes = list(size = 4)))
+print(p)
+dev.off()
+
+auc_chd4 <- function() {
+  sigs <- tab2sig("chd4/chd_sh.txt")
+  sigs <- as.data.frame(sigs$CHD4_sh_DOWN)
+  cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
+  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
+  dat <- as.data.frame(t(getAUC(cells_AUC)))
+  dat$class <- sg
+  dat <- melt(dat, id.vars = c("class"))
+  dat$class <- factor(dat$class, labels = c("G1-CDC20-SPG20-", 
+                                        "G2/M-CDC20-SPG20-", 
+                                        "G2/M-CDC20+SPG20-",
+                                        "G2/M-CDC20+SPG20+"))
+  comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+"),
+                       c("G2/M-CDC20-SPG20-", "G2/M-CDC20+SPG20-")) 
+  plot_auc(dat, comparisons = comparisons) +
+    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
+    theme(legend.text.align = 0) +
+    labs(color="")
+}
+```
+
+We can further stratify by SPG20 and repeat the above analysis.
+
+```{r}
+cd <- readRDS("final_data/filtered_count_matrix.rds")
+pd <- readRDS("final_data/cycling_metadata.rds")
+sg <- pd$type
+sg <- sg[which(pd$barcode %in% colnames(cd))]
+names(sg) <- colnames(cd)
+sg <- factor(sg)
+
+auc_mccaroll_spg <- function() {
+  sigs <- tab2sig("final_data/signatures/cell_cycle_mccarroll.txt")
+  cells_rankings <- AUCell_buildRankings(cd, nCores=12, plotStats=FALSE)
+  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
+  dat <- as.data.frame(t(getAUC(cells_AUC)))
+  dat$class <- sg
+  dat <- melt(dat, id.vars = c("class"))
+  dat$class <- factor(dat$class, labels = c("G1-CDC20-SPG20-", 
+                                        "G2/M-CDC20-SPG20-", 
+                                        "G2/M-CDC20+SPG20-",
+                                        "G2/M-CDC20+SPG20+"))
+  comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+")) 
+  plot_auc(dat, comparisons = comparisons) +
+    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
+    theme(legend.text.align = 0) +
+    labs(color="")
+}
+
+pdf(file="fig6g.pdf", width = 2200/300, height=1800/300, family = font_family)
+p <- auc_mccaroll_spg() + 
+      guides(color = guide_legend(override.aes = list(size = 4)))
+print(p)
+dev.off()
+
+auc_glotzer_spg <- function() {
+  sigs <- tab2sig("final_data/signatures/CYTOKINESES_GLOTZER.txt")
+  sigs <- as.data.frame(sigs)
+  cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
+  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
+  dat <- as.data.frame(t(getAUC(cells_AUC)))
+  dat$class <- sg
+  dat <- melt(dat, id.vars = c("class"))
+  dat$class <- factor(dat$class, labels = c("G1-CDC20-SPG20-", 
+                                        "G2/M-CDC20-SPG20-", 
+                                        "G2/M-CDC20+SPG20-",
+                                        "G2/M-CDC20+SPG20+"))
+  comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+")) 
+  plot_auc(dat, comparisons = comparisons) +
+    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
+                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
+    theme(legend.text.align = 0)
+}
+
+set.seed(1000)
+p <- auc_glotzer_spg() +
+    labs(color="") + 
+    guides(color = guide_legend(override.aes = list(size = 4)))
+pdf(file="fig6h.pdf", width = 1300/300, height=900/300, family = font_family)
+#png(file="fig6h.png", res = 300, width = 1300, height = 900)
+print(p)
+dev.off()
+
+```
+

@@ -1,0 +1,19 @@
+GO_CELL_SEPARATION_AFTER_CYTOKINESIS
+> The process of physically separating progeny cells after cytokinesis; this may involve enzymatic digestion of septum or cell wall components.
+CEP55
+CHMP1A
+CHMP1B
+CHMP2A
+CHMP2B
+CHMP3
+CHMP4A
+CHMP4B
+CHMP4C
+CHMP5
+CHMP6
+CHMP7
+KIF20A
+MITD1
+PDCD6IP
+VPS4A
+VPS4B

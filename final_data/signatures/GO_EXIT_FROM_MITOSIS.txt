@@ -1,0 +1,14 @@
+GO_EXIT_FROM_MITOSIS
+> The cell cycle transition where a cell leaves M phase and enters a new G1 phase. M phase is the part of the mitotic cell cycle during which mitosis and cytokinesis take place.
+CHMP2A
+CHMP4B
+CHMP7
+CLASP1
+CLASP2
+CTDP1
+EPS8
+PPP2R2D
+SIRT7
+SPAST
+UBE2C
+UBE2S
