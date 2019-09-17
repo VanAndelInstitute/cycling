@@ -283,11 +283,14 @@ by cell group and facet by signature.
 ```{r}
 plot_auc <- function(data, title = " ", comparisons) {
   ttest2 <- function(a, b) {
-    p <- t.test(a,b)$p.value
+    p <- wilcox.test(a,b)$p.value
     p <- ifelse(p < 0.0001, "<0.0001", round(p,4))
     p <- ifelse(p > 0.05, "ns", p)
     list(p.value=p)
   }
+  
+  print(paste0("Kruskal Wallis Test p-value: ", 
+               kruskal.test(value ~ class, data=data)$p.value))
   
   p <- ggplot(data, aes(class, value)) +
     geom_jitter(aes(color = class), 

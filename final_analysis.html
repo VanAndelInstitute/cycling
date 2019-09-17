@@ -2174,11 +2174,14 @@ cycle signature. To begin, we define a plotting function for AUC scores to color
 by cell group and facet by signature.</p>
 <pre class="r"><code>plot_auc &lt;- function(data, title = &quot; &quot;, comparisons) {
   ttest2 &lt;- function(a, b) {
-    p &lt;- t.test(a,b)$p.value
+    p &lt;- wilcox.test(a,b)$p.value
     p &lt;- ifelse(p &lt; 0.0001, &quot;&lt;0.0001&quot;, round(p,4))
     p &lt;- ifelse(p &gt; 0.05, &quot;ns&quot;, p)
     list(p.value=p)
   }
+  
+  print(paste0(&quot;Kruskal Wallis Test p-value: &quot;, 
+               kruskal.test(value ~ class, data=data)$p.value))
   
   p &lt;- ggplot(data, aes(class, value)) +
     geom_jitter(aes(color = class), 
@@ -2347,6 +2350,7 @@ p &lt;- auc_mccaroll_spg() +
 ##  G1.S:   4 (4% of 100)
 ##  S:  5 (4% of 113)
 ##  M:  3 (2% of 151)</code></pre>
+<pre><code>## [1] &quot;Kruskal Wallis Test p-value: 1.02143925999002e-73&quot;</code></pre>
 <pre class="r"><code>print(p)
 dev.off()</code></pre>
 <pre><code>## png 
@@ -2383,6 +2387,7 @@ p &lt;- auc_glotzer_spg() +
 <pre><code>## Using 4 cores.</code></pre>
 <pre><code>## Genes in the gene sets NOT available in the dataset: 
 ##  CYTOKINESIS:    2 (12% of 16)</code></pre>
+<pre><code>## [1] &quot;Kruskal Wallis Test p-value: 3.84572653676129e-102&quot;</code></pre>
 <pre class="r"><code>pdf(file=&quot;fig6h.pdf&quot;, width = 1300/300, height=900/300, family = font_family)
 #png(file=&quot;fig6h.png&quot;, res = 300, width = 1300, height = 900)
 print(p)
