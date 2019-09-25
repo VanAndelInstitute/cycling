@@ -54,40 +54,52 @@ sudo apt-get install libxt-dev
 
 ```
 
-Then the required R packages can be installed within an R session.
+Then the required R packages can be installed (where not already present) within an R session:
 
-```{r, eval=FALSE}
-devtools::install_github("hb-gitified/cellrangerRkit")
-devtools::install_github("hms-dbmi/pagoda2")
-
+```{r, eval=FALSE,  message=FALSE}
 setRepositories(ind=c(1,2,3,4))
-install.packages("scde")
-install.packages("AUCell")
-install.packages("doRNG")
-install.packages("extrafont")
+reqs <- c( "AUCell", 
+           "extrafont",
+           "BiocGenerics", 
+           "clusterProfiler", 
+           "coin",
+           "devtools", 
+           "doRNG",
+           "dplyr",
+           "DOSE", 
+           "GFD",
+           "ggplot2",
+           "grid",
+           "gridExtra",
+           "GO.db", 
+           "org.Hs.eg.db",
+           "emmeans",
+           "pcaMethods", 
+           "reshape2",
+           "scde")
+
+ix <- which(!reqs %in% installed.packages())
+if(length(ix) > 0) {
+  install.packages(reqs[ix])  
+}
+
+if(!require(pagoda2))
+  devtools::install_github("hms-dbmi/pagoda2")
+
+if(!require(cellrangerRkit))
+  devtools::install_github("hb-gitified/cellrangerRkit")
 
 ```
 
-The required packages can then be loaded. If the following fails with an 
-error, additional libraries may be missing on your system but should be 
-readily installed with `install.packages(...)`.
+The required packages can then be loaded. 
 
 
 ```{r, eval=TRUE}
 
 loadAll <- function() {
-  library(reshape2)
-  library(org.Hs.eg.db)
-  library(cellrangerRkit)
-  library(scde)
-  library(DOSE)
-  library(clusterProfiler)
-  library(AUCell)
-  library(pagoda2)
-  library(ggplot2)
-  library(ggpubr)
-  library(grid)
-  library(gridExtra)
+  for(p in reqs) {
+    library(p, character.only = TRUE)
+  }
 }
 
 suppressMessages(loadAll())
@@ -115,6 +127,65 @@ Here we combine molecular beacon technology with single cell RNASeq profiling to
 identify and chracterize a population of cardimoyocytes enriched for cells with
 proliferative potential.
 
+## Incucyte Data Analysis
+
+The output from the incucyte was loaded, analyzed, and plotted as follows.
+
+```{r}
+library(ggplot2)
+dat <- read.delim("final_data/incucyte_data.csv", as.is=TRUE, header=TRUE, sep=",")
+dat.m <- melt(dat, id.vars="Time")
+p <- ggplot(dat.m, aes(x=Time, y=value, color=variable)) +
+  geom_smooth(method=lm) +
+  geom_line() +
+  geom_point() +
+  ylab("Relative Confluence") +
+  xlab("Hours post plating") +
+  theme_bw() +
+    scale_color_manual(name = "", values=c("#ff9199", "#01e99f", "#92a6f5"),
+                       labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
+                                expression(paste("G2/M-", italic("CDC20"), ""^low)), 
+                                expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
+  theme(axis.title=element_text(face="bold"),
+        legend.text.align = 0) +
+  guides(color=guide_legend(overridesummaryaes=list(fill=NA)))
+
+pdf(file="fig4c.pdf", width = 1600/300, height=1000/300, family = font_family)
+print(p)
+dev.off()
+
+library(emmeans)
+
+# This is time series data, but for simplicity we will fit linear 
+# models to it as it appears not only monotonic but linear.
+# is there interaction between variable and Time?
+fit <- lm(value ~ Time + variable + Time : variable, data = dat.m)
+anova(fit)
+
+# For post-hoc analysis, we can do this in the conventional t-test way
+
+compare_slopes <- function(dat, var1, var2) {
+  fit1 <- lm(value ~ Time, data=subset(dat, variable==var1))
+  fit2 <- lm(value ~ Time, data=subset(dat, variable==var2))
+  cf1 <- summary(fit1)$coef
+  df <- summary(fit1)$df[2] # already penalized by 2
+  
+  cf2 <- summary(fit2)$coef
+  df <- df + summary(fit2)$df[2] # already penalized by 2 more
+  
+  ts <- abs(cf2[2,1] - cf1[2,1]) / sqrt(cf2[2,2]**2 + cf1[2,2]**2)
+  2 * dt(ts, df)
+}
+
+compare_slopes(dat.m, "G1", "CDC20high")
+compare_slopes(dat.m, "G1", "CDC20low")
+compare_slopes(dat.m, "CDC20high", "CDC20low")
+
+# Or the fancier estimated marginal means way
+fit.lst <- emtrends(fit, "variable", var="Time")
+pairs(fit.lst)
+
+```
 
 ## Differential gene expression analysis
 Here we use the `pagoda2` package to normalize the gene counts and then identify
@@ -281,17 +352,55 @@ cycle signature. To begin, we define a plotting function for AUC scores to color
 by cell group and facet by signature.
 
 ```{r}
-plot_auc <- function(data, title = " ", comparisons) {
+library(ggplot2)
+library(ggpubr)
+
+plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
   ttest2 <- function(a, b) {
-    p <- wilcox.test(a,b)$p.value
+    d <- c(a,b)
+    grp <- c(rep('a', length(a)),
+             rep('b', length(b)))
+    dat <- data.frame(value=d, group=grp)
+    set.seed(1000)
+    p <- GFD::GFD(value ~ grp, data=dat, nperm = 100000)$WTS["p-value WTPS"]
+    if(adjust) {
+      p <- p / length(comparisons)
+    }
     p <- ifelse(p < 0.0001, "<0.0001", round(p,4))
     p <- ifelse(p > 0.05, "ns", p)
     list(p.value=p)
   }
+  # diagnostics
+  if(length(levels(data$variable)) > 1) {
+    print("Permuted independence test (coin package):")
+    tr.coin <- coin::independence_test(class + variable ~ value, 
+                                 data=data, teststat="quadratic", 
+                                 distribution=approximate(nresample = 10000), 
+                                 trafo(data, numeric_trafo = rank_trafo))
+    print(tr.coin)
+    print("Permuted Wald Type Test (GFD package):")
+    tr.gfd <- GFD::GFD(value ~ class + variable, data = data)
+    print(summary(tr.gfd))
+  } else {
+    print("Permutation based Kruskal Wallis Test p-value:")
+    tr.coin <- coin::kruskal_test(value ~ class, 
+                             data=data, 
+                             distribution=approximate(nresample = 10000))
+    print(tr.coin)
+    print("Permuted Wald Type Test (GFD package):")
+    tr.gfd <- GFD::GFD(value ~ class, data = data)
+    print(summary(tr.gfd))
+  }
   
-  print(paste0("Kruskal Wallis Test p-value: ", 
-               kruskal.test(value ~ class, data=data)$p.value))
+  print("### ONE WAY ANOVA")
+  print(summary(aov(value ~ class, data=data)))
   
+  if(length(levels(data$variable)) > 1) {
+    print("TWO WAY ANOVA:")
+    rv <- data$value
+    print(summary(aov(rv ~ class + variable, data=data)))
+  }
+
   p <- ggplot(data, aes(class, value)) +
     geom_jitter(aes(color = class), 
                 height = 0.01, 
@@ -315,7 +424,6 @@ plot_auc <- function(data, title = " ", comparisons) {
                ncol = 3, 
                scales = "fixed")
   p
-  
 }
 
 
@@ -347,6 +455,8 @@ sg2 <- sg2[which(pd$barcode %in% colnames(cd))]
 names(sg2) <- colnames(cd)
 sg2 <- factor(sg2)
 
+
+
 auc_mccaroll <- function() {
   sigs <- tab2sig("final_data/signatures/cell_cycle_mccarroll.txt")
   cells_rankings <- AUCell_buildRankings(cd, nCores=12, plotStats=FALSE)
@@ -363,8 +473,8 @@ auc_mccaroll <- function() {
 
   plot_auc(dat, comparisons = comparisons) +
     scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
-                                  expression(paste("G1/M CDC20"^low)),
-                                  expression(paste("G1/M CDC20"^high))))+
+                                  expression(paste("G2/M italic(CDC20)"^low)),
+                                  expression(paste("G2/M CDC20"^high))))+
     theme(legend.text.align = 0) +
     labs(color="")
 }
@@ -391,8 +501,8 @@ auc_glotzer <- function() {
                    c("G1-CDC20-", "G2/M-CDC20+"))
   plot_auc(dat, title=" ", comparisons = comparisons) + 
     scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
-                                  expression(paste("G1/M CDC20"^low)),
-                                  expression(paste("G1/M CDC20"^high))))+
+                                  expression(paste("G2/M CDC20"^low)),
+                                  expression(paste("G2/M CDC20"^high))))+
     theme(legend.text.align = 0)
 }
 
