@@ -1,4 +1,4 @@
-# Git Large File Support Is Required!
+## Git Large File Support Is Required!
 
 Please note that this repo contains large data files required to reproduce 
 key elements of the gene expression analysis described in our paper:
@@ -19,10 +19,13 @@ to just reviewing the code).
 
 Luckily, LFS support is easy to install. See here: https://git-lfs.github.com
 
-# What is here
+## What is here
 
-Supporting analysis scripts and data for the above manuscript enabling regeneration of the key panels from figure 5 and 6 related to single cell RNASeq expression profiling. The figure panes may be reproduced from the provided data files by executing the code blocks in  data_analysis.Rmd 
-(or "knitting" the document from RStudio). 
+Supporting analysis scripts and data for the above manuscript enabling regeneration of the key panels from figure 5 and 6 related to single cell RNASeq expression profiling. The figure panes may be reproduced from the provided data files by executing the code blocks in  data_analysis.Rmd (or "knitting" the document from RStudio). 
+
+This repository provides processed data necessary to perform the analysis and generate 
+figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO. We will 
+update this page as soon as we have our GEO accession id.
 
 Please see the "pre-requisites" section prior to running analysis to ensure 
 required packages are installed. 

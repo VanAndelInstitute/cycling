@@ -56,7 +56,7 @@ sudo apt-get install libxt-dev
 
 Then the required R packages can be installed (where not already present) within an R session:
 
-```{r, eval=FALSE,  message=FALSE}
+```{r, eval=TRUE,  message=FALSE}
 setRepositories(ind=c(1,2,3,4))
 reqs <- c( "AUCell", 
            "extrafont",
@@ -66,6 +66,7 @@ reqs <- c( "AUCell",
            "devtools", 
            "doRNG",
            "dplyr",
+           "e1071",
            "DOSE", 
            "GFD",
            "ggplot2",
@@ -144,7 +145,7 @@ p <- ggplot(dat.m, aes(x=Time, y=value, color=variable)) +
   theme_bw() +
     scale_color_manual(name = "", values=c("#ff9199", "#01e99f", "#92a6f5"),
                        labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
-                                expression(paste("G2/M-", italic("CDC20"), ""^low)), 
+                                expression(paste("G2/M-", italic("CDC20"), ""^low)),
                                 expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
   theme(axis.title=element_text(face="bold"),
         legend.text.align = 0) +
@@ -349,14 +350,48 @@ dev.off()
 We can further analyze the functional difference in these cells by performing 
 gene set enrichment analysis (via the AUCell algorithm) using established cell 
 cycle signature. To begin, we define a plotting function for AUC scores to color 
-by cell group and facet by signature.
+by cell group and facet by signature, while simultaneously reporting results of 
+analysis for equivalence of central tendency between groups using permutation 
+based methods and reporting adjusted pair-wise post-hoc comparisons (again 
+using permutation based methods due to non-equivalence of variances and 
+non-normality of some data strata).
 
 ```{r}
 library(ggplot2)
 library(ggpubr)
 
-plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
-  ttest2 <- function(a, b) {
+# set dryrun = TRUE to test the plotting without permutation based sig tests (much 
+# faster for optimizing plot labels, etc.). The test parameter should be one of 
+# 't', 'perm', or 'auto' (in which case the permutation based test is used only if 
+# abs(skewness(data$value)) > 0.5)
+plot_auc <- function(data, title = " ", 
+                     comparisons, 
+                     adjust=TRUE, 
+                     test="auto",
+                     dryrun = FALSE, 
+                     scales = "fixed") {
+  # normality and variance diagnostics
+  print(ggqqplot(data, x = "value", facet.by = c("class", "variable")))
+  for(v in levels(data$variable)) {
+    print(paste0("Equal variance test for variable level ", v))
+    print(bartlett.test(value ~ class, data = data, subset = data$variable == v))
+  }
+ 
+  skewed <- abs(skewness(data$value)) > 0.5
+  print(paste0("SKEWNESS ", skewness(data$value)))
+  
+  ttest <- function(a,b) {
+    p <- t.test(a, b, var.equal=FALSE)$p.value
+    if(adjust) {
+      p <- p * (length(comparisons) * length(levels(data$variable)))
+    }
+    p <- ifelse(p < 0.0001, "<0.0001", round(p,4))
+    p <- ifelse(p > 0.05, "ns", p)
+    return(list(p.value = p))
+  }  
+  
+  permtest <- function(a, b) {
+    if(dryrun) return(list(p.value="dryrun"))
     d <- c(a,b)
     grp <- c(rep('a', length(a)),
              rep('b', length(b)))
@@ -364,41 +399,42 @@ plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
     set.seed(1000)
     p <- GFD::GFD(value ~ grp, data=dat, nperm = 100000)$WTS["p-value WTPS"]
     if(adjust) {
-      p <- p / length(comparisons)
+      p <- p * (length(comparisons) * length(levels(data$variable)))
     }
     p <- ifelse(p < 0.0001, "<0.0001", round(p,4))
     p <- ifelse(p > 0.05, "ns", p)
     list(p.value=p)
   }
+  
   # diagnostics
-  if(length(levels(data$variable)) > 1) {
-    print("Permuted independence test (coin package):")
-    tr.coin <- coin::independence_test(class + variable ~ value, 
-                                 data=data, teststat="quadratic", 
-                                 distribution=approximate(nresample = 10000), 
-                                 trafo(data, numeric_trafo = rank_trafo))
-    print(tr.coin)
-    print("Permuted Wald Type Test (GFD package):")
-    tr.gfd <- GFD::GFD(value ~ class + variable, data = data)
-    print(summary(tr.gfd))
+  if(test == "perm" || (test == "auto" && skewed)) {
+    if(length(levels(data$variable)) > 1 && !dryrun) {
+      print("Permuted Wald Type Test (GFD package):")
+      tr.gfd <- GFD::GFD(value ~ class + variable, data = data)
+      print(tr.gfd)
+    } else if (!dryrun) {
+      print("Permuted Wald Type Test (GFD package):")
+      tr.gfd <- GFD::GFD(value ~ class, data = data)
+      print(tr.gfd)
+    }
   } else {
-    print("Permutation based Kruskal Wallis Test p-value:")
-    tr.coin <- coin::kruskal_test(value ~ class, 
-                             data=data, 
-                             distribution=approximate(nresample = 10000))
-    print(tr.coin)
-    print("Permuted Wald Type Test (GFD package):")
-    tr.gfd <- GFD::GFD(value ~ class, data = data)
-    print(summary(tr.gfd))
+     if(!dryrun) {
+        print("### ONE WAY ANOVA")
+        print(summary(aov(value ~ class, data=data)))
+     }
+     if(length(levels(data$variable)) > 1 && !dryrun) {
+      print("TWO WAY ANOVA:")
+      rv <- data$value
+      print(summary(aov(rv ~ class + variable, data=data)))
+     }
   }
   
-  print("### ONE WAY ANOVA")
-  print(summary(aov(value ~ class, data=data)))
-  
-  if(length(levels(data$variable)) > 1) {
-    print("TWO WAY ANOVA:")
-    rv <- data$value
-    print(summary(aov(rv ~ class + variable, data=data)))
+  if(test == "perm" || (test == "auto" && skewed)) {
+    print(" ##### USING PERMUTATION BASED SIGNIFICANCE TESTING ####")
+    sigtest <- permtest
+  } else {
+    print(" ##### USING PARAMETRIC SIGNIFICANCE TESTING ####")
+    sigtest <- ttest
   }
 
   p <- ggplot(data, aes(class, value)) +
@@ -412,7 +448,7 @@ plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
                           textsize = 3,
                           vjust = -.2,
                           step_increase = .18,
-                          test=ttest2) +
+                          test=sigtest) +
     theme_bw() + 
     scale_y_continuous(expand = c(0.2, 0)) +
     ggtitle(title) +
@@ -422,7 +458,7 @@ plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
     ylab("AUC Enrichment Score") +
     facet_wrap(~variable, 
                ncol = 3, 
-               scales = "fixed")
+               scales = scales)
   p
 }
 
@@ -432,7 +468,7 @@ plot_auc <- function(data, title = " ", comparisons, adjust=TRUE) {
 We then load the cell cycle signatures defined by McCarroll et al. and Glotzer et al,
 calculate enrichment scores for each signature and each cell and plot results. 
 
-```{r, results = 'hide', message = FALSE}
+```{r, message = FALSE}
 
 tab2sig <- function(file) {
   data <- read.delim(file, as.is=TRUE, stringsAsFactors = FALSE, header=TRUE)
@@ -457,8 +493,9 @@ sg2 <- factor(sg2)
 
 
 
-auc_mccaroll <- function() {
+auc_mccaroll <- function(dryrun = FALSE) {
   sigs <- tab2sig("final_data/signatures/cell_cycle_mccarroll.txt")
+  set.seed(1000)
   cells_rankings <- AUCell_buildRankings(cd, nCores=12, plotStats=FALSE)
   cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
   dat <- as.data.frame(t(getAUC(cells_AUC)))
@@ -471,23 +508,25 @@ auc_mccaroll <- function() {
                    c("G1-CDC20-", "G2/M-CDC20-"), 
                    c("G1-CDC20-", "G2/M-CDC20+"))
 
-  plot_auc(dat, comparisons = comparisons) +
-    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
-                                  expression(paste("G2/M italic(CDC20)"^low)),
-                                  expression(paste("G2/M CDC20"^high))))+
+
+  plot_auc(dat, test="perm", comparisons = comparisons, dryrun = dryrun) +
+    scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
     theme(legend.text.align = 0) +
     labs(color="")
 }
 
-pdf(file="fig5a.pdf", width = 2000/300, height=1800/300, family = font_family)
 p <- auc_mccaroll() +
       guides(color = guide_legend(override.aes = list(size = 4)))
+pdf(file="fig5a.pdf", width = 2000/300, height=1800/300, family = font_family)
 print(p)
 dev.off()
 
-auc_glotzer <- function() {
+auc_glotzer <- function(dryrun = FALSE) {
   sigs <- tab2sig("final_data/signatures/CYTOKINESES_GLOTZER.txt")
   sigs <- as.data.frame(sigs)
+  set.seed(1000)
   cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
   cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
   dat <- as.data.frame(t(getAUC(cells_AUC)))
@@ -499,47 +538,26 @@ auc_glotzer <- function() {
   comparisons <- list( c("G2/M-CDC20+", "G2/M-CDC20-"),  
                    c("G1-CDC20-", "G2/M-CDC20-"), 
                    c("G1-CDC20-", "G2/M-CDC20+"))
-  plot_auc(dat, title=" ", comparisons = comparisons) + 
-    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low)),
-                                  expression(paste("G2/M CDC20"^low)),
-                                  expression(paste("G2/M CDC20"^high))))+
+  plot_auc(dat, title=" ", comparisons = comparisons, dryrun = dryrun) + 
+    scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
     theme(legend.text.align = 0)
 }
-
-pdf(file="fig5d.pdf", width = 1000/300, height=900/300, family = font_family)
+                                  
 p <- auc_glotzer() +
     labs(color="") + 
     guides(color = guide_legend(override.aes = list(size = 4)))
+pdf(file="fig5d.pdf", width = 1000/300, height=900/300, family = font_family)
 print(p)
 dev.off()
 
-auc_chd4 <- function() {
-  sigs <- tab2sig("chd4/chd_sh.txt")
-  sigs <- as.data.frame(sigs$CHD4_sh_DOWN)
-  cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
-  cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
-  dat <- as.data.frame(t(getAUC(cells_AUC)))
-  dat$class <- sg
-  dat <- melt(dat, id.vars = c("class"))
-  dat$class <- factor(dat$class, labels = c("G1-CDC20-SPG20-", 
-                                        "G2/M-CDC20-SPG20-", 
-                                        "G2/M-CDC20+SPG20-",
-                                        "G2/M-CDC20+SPG20+"))
-  comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+"),
-                       c("G2/M-CDC20-SPG20-", "G2/M-CDC20+SPG20-")) 
-  plot_auc(dat, comparisons = comparisons) +
-    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
-    theme(legend.text.align = 0) +
-    labs(color="")
-}
 ```
 
 We can further stratify by SPG20 and repeat the above analysis.
 
-```{r}
+```{r, message = FALSE}
+
 cd <- readRDS("final_data/filtered_count_matrix.rds")
 pd <- readRDS("final_data/cycling_metadata.rds")
 sg <- pd$type
@@ -547,8 +565,9 @@ sg <- sg[which(pd$barcode %in% colnames(cd))]
 names(sg) <- colnames(cd)
 sg <- factor(sg)
 
-auc_mccaroll_spg <- function() {
+auc_mccaroll_spg <- function(dryrun = FALSE) {
   sigs <- tab2sig("final_data/signatures/cell_cycle_mccarroll.txt")
+  set.seed(1000)
   cells_rankings <- AUCell_buildRankings(cd, nCores=12, plotStats=FALSE)
   cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
   dat <- as.data.frame(t(getAUC(cells_AUC)))
@@ -559,24 +578,25 @@ auc_mccaroll_spg <- function() {
                                         "G2/M-CDC20+SPG20-",
                                         "G2/M-CDC20+SPG20+"))
   comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+")) 
-  plot_auc(dat, comparisons = comparisons) +
-    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
+  plot_auc(dat, test="perm", comparisons = comparisons, dryrun = dryrun) +
+    scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^low, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high, italic("SPG20"), ""^high,)))) +
     theme(legend.text.align = 0) +
     labs(color="")
 }
 
-pdf(file="fig6g.pdf", width = 2200/300, height=1800/300, family = font_family)
 p <- auc_mccaroll_spg() + 
       guides(color = guide_legend(override.aes = list(size = 4)))
+pdf(file="fig6g.pdf", width = 2200/300, height=1800/300, family = font_family)
 print(p)
 dev.off()
 
-auc_glotzer_spg <- function() {
+auc_glotzer_spg <- function(dryrun = FALSE) {
   sigs <- tab2sig("final_data/signatures/CYTOKINESES_GLOTZER.txt")
   sigs <- as.data.frame(sigs)
+  set.seed(1000)
   cells_rankings <- AUCell_buildRankings(cd, nCores=4, plotStats=FALSE)
   cells_AUC <- AUCell_calcAUC(sigs, cells_rankings)
   dat <- as.data.frame(t(getAUC(cells_AUC)))
@@ -587,20 +607,53 @@ auc_glotzer_spg <- function() {
                                         "G2/M-CDC20+SPG20-",
                                         "G2/M-CDC20+SPG20+"))
   comparisons <- list( c("G2/M-CDC20+SPG20-", "G2/M-CDC20+SPG20+")) 
-  plot_auc(dat, comparisons = comparisons) +
-    scale_color_discrete(labels=c(expression(paste("G1 CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^low*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^low)),
-                                  expression(paste("G2/M CDC20"^high*"SPG20"^high)))) +
+  plot_auc(dat, comparisons = comparisons, dryrun = dryrun) +
+    scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^low, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high, italic("SPG20"), ""^low,)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high, italic("SPG20"), ""^high,)))) +
     theme(legend.text.align = 0)
 }
 
-set.seed(1000)
 p <- auc_glotzer_spg() +
     labs(color="") + 
     guides(color = guide_legend(override.aes = list(size = 4)))
 pdf(file="fig6h.pdf", width = 1300/300, height=900/300, family = font_family)
-#png(file="fig6h.png", res = 300, width = 1300, height = 900)
+print(p)
+dev.off()
+
+```
+
+For the supplemental figure 4b, we plotted some top genes accross populations.
+
+```{r, message = FALSE}
+
+cd <- readRDS("final_data/filtered_count_matrix.rds")
+pd <- readRDS("final_data/cycling_metadata.rds")
+sg <- pd$type_cdc20
+sg <- sg[which(pd$barcode %in% colnames(cd))]
+names(sg) <- colnames(cd)
+sg <- factor(sg)
+
+gg <- c("NEK2", "CENPE", "CCNB1", "TTK", "DLGAP5", "PLK1", "AURKB", "NDC80", "UBE2C")
+dat <- as.data.frame(t(cd[gg, ]))
+  dat$class <- factor(sg, labels = c("G1-CDC20-", 
+                                        "G2/M-CDC20-", 
+                                        "G2/M-CDC20+"))
+dat.m <- melt(dat, id.vars="class")
+
+comparisons <- list( c("G2/M-CDC20+", "G2/M-CDC20-"),  
+                 c("G1-CDC20-", "G2/M-CDC20-"), 
+                 c("G1-CDC20-", "G2/M-CDC20+"))
+
+# these are not auc scores, but our plotting function will work for this data as well.
+p <- plot_auc(dat.m, comparisons = comparisons, scales="free", dryrun = FALSE) + 
+    scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^low)),
+                                  expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
+    theme(legend.text.align = 0) +
+    labs(color="")
+pdf(file="figS4b.pdf", width = 2000/300, height=1800/300, family = font_family)
 print(p)
 dev.off()
 
