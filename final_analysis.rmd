@@ -39,8 +39,8 @@ requires that you have [large file support for git](https://git-lfs.github.com)
 installed.  Otherwise, you will only receive the soft links to the data files, not the data files themselves.
 
 This repository provides processed data necessary to perform the analysis and generate 
-figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO. We will 
-update this page as soon as we have our GEO accession id.
+figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO and 
+are available under accession [GSE138270](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE138270)
 
 ## Pre-requisites
 
