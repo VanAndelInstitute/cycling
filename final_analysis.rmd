@@ -30,7 +30,7 @@ Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort M.D. M
 </center>
 
 This document documents how the gene expression data was analyzed and the figures produced or 
-this manuscript. The source file (`data_analysis.rmd`) for this document and 
+this manuscript. The source file (`final_analysis.rmd`) for this document and 
 supporting data files are available from 
 [the project github repository](https://github.com/vanandelinstitute/cycling). 
 Compiling (kniting) the source document in RStudio (or from the command line) 
