@@ -38,6 +38,10 @@ will regenerate key panes off figures 5 and 6 from the source data as they appea
 requires that you have [large file support for git](https://git-lfs.github.com) 
 installed.  Otherwise, you will only receive the soft links to the data files, not the data files themselves.
 
+This repository provides processed data necessary to perform the analysis and generate 
+figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO. We will 
+update this page as soon as we have our GEO accession id.
+
 ## Pre-requisites
 
 This analysis requires a number of packages to complete, most notably AUCell, scde, and 
@@ -197,7 +201,7 @@ or TNNT2 positive (cardiomyocytes and/or cardiomyocyte progenitors).
 
 The code below shows how the raw counts were extracted from the 10X Chromium run 
 and how they were filtered. The raw output from the 10X Chromium pipeline is not 
-provided here due to file size, but this repository contains the filtered raw 
+provided here due to file size (but is available from GEO), but this repository contains the filtered raw 
 counts for use in both the pagoda and AUCell analyses below.
 
 ```{r, echo=TRUE, eval=FALSE}
@@ -372,11 +376,7 @@ plot_auc <- function(data, title = " ",
                      scales = "fixed") {
   # normality and variance diagnostics
   print(ggqqplot(data, x = "value", facet.by = c("class", "variable")))
-  for(v in levels(data$variable)) {
-    print(paste0("Equal variance test for variable level ", v))
-    print(bartlett.test(value ~ class, data = data, subset = data$variable == v))
-  }
- 
+
   skewed <- abs(skewness(data$value)) > 0.5
   print(paste0("SKEWNESS ", skewness(data$value)))
   
@@ -509,7 +509,7 @@ auc_mccaroll <- function(dryrun = FALSE) {
                    c("G1-CDC20-", "G2/M-CDC20+"))
 
 
-  plot_auc(dat, test="perm", comparisons = comparisons, dryrun = dryrun) +
+  plot_auc(dat, test="auto", comparisons = comparisons, dryrun = dryrun) +
     scale_color_discrete(labels=c(expression(paste("G1-", italic("CDC20"), ""^low)),
                                   expression(paste("G2/M-", italic("CDC20"), ""^low)),
                                   expression(paste("G2/M-", italic("CDC20"), ""^high)))) +
