@@ -1,7 +1,7 @@
 ---
 title: "scRNASeq analysis of cycling cardiomyocytes"
 author: "Jovinge Lab"
-date: "10/3/2019"
+date: "10/2/2019"
 output:
   BiocStyle::html_document:
     toc_float: true
@@ -20,33 +20,36 @@ loadfonts()
 
 This document was prepared in support of our paper:
 
-<center>
-<b>Isolation of cardiomyocytes undergoing mitosis with complete cytokinesis.</b>
+<center> <b>Isolation of cardiomyocytes undergoing mitosis with complete
+cytokinesis.</b>
 
-Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort M.D. M.S.1,2†, and Stefan Jovinge MD Ph.D1,3,4*
+Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort M.D.
+M.S.1,2†, and Stefan Jovinge MD Ph.D1,3,4*
 
 †Equal contribution
-
 </center>
 
-This document documents how the gene expression data was analyzed and the figures produced or 
-this manuscript. The source file (`final_analysis.rmd`) for this document and 
-supporting data files are available from 
-[the project github repository](https://github.com/vanandelinstitute/cycling). 
-Compiling (kniting) the source document in RStudio (or from the command line) 
-will regenerate key panes off figures 5 and 6 from the source data as they appear in the manuscript. Note that due to the large data files, cloning the repository 
-requires that you have [large file support for git](https://git-lfs.github.com) 
-installed.  Otherwise, you will only receive the soft links to the data files, not the data files themselves.
+This document describes how the gene expression data was analyzed and the
+figures produced for this manuscript. The source file (`final_analysis.rmd`) for
+this document and supporting data files are available from [the project github
+repository](https://github.com/vanandelinstitute/cycling). Compiling (kniting)
+the source document in RStudio (or from the command line) will regenerate key
+panes of figures 5 and 6 and supplementary figure 4 from the source data as they
+appear in the manuscript. Note that due to the large data files, cloning the
+repository requires that you have [large file support for
+git](https://git-lfs.github.com) installed.  Otherwise, you will only receive
+the soft links to the data files, not the data files themselves.
 
-This repository provides processed data necessary to perform the analysis and generate 
-figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO and 
-are available under accession [GSE138270](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE138270)
+This repository provides processed data necessary to perform the analysis and
+generate figures. Raw data (both fastqs and 10X genomics mtx files) have been
+submitted to GEO and are available under accession
+[GSE138270](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE138270)
 
 ## Pre-requisites
-
-This analysis requires a number of packages to complete, most notably AUCell, scde, and 
-cellRangerRkit (which is no longer supported by 10XGenomics, but is still available on 
-the internet). These dependencies may be installed as follows. First some system libraries must be installed from the command line.
+This analysis requires a number of packages to complete, most notably AUCell,
+scde, and cellRangerRkit (which is no longer supported by 10XGenomics, but is
+still available on the internet). These dependencies may be installed as
+follows. First some system libraries must be installed from the command line.
 
 ```{bash, eval=FALSE}
 
@@ -70,6 +73,7 @@ reqs <- c( "AUCell",
            "devtools", 
            "doRNG",
            "dplyr",
+           "emmeans",
            "e1071",
            "DOSE", 
            "GFD",
@@ -97,7 +101,6 @@ if(!require(cellrangerRkit))
 ```
 
 The required packages can then be loaded. 
-
 
 ```{r, eval=TRUE}
 
@@ -137,7 +140,6 @@ proliferative potential.
 The output from the incucyte was loaded, analyzed, and plotted as follows.
 
 ```{r}
-library(ggplot2)
 dat <- read.delim("final_data/incucyte_data.csv", as.is=TRUE, header=TRUE, sep=",")
 dat.m <- melt(dat, id.vars="Time")
 p <- ggplot(dat.m, aes(x=Time, y=value, color=variable)) +
@@ -158,8 +160,6 @@ p <- ggplot(dat.m, aes(x=Time, y=value, color=variable)) +
 pdf(file="fig4c.pdf", width = 1600/300, height=1000/300, family = font_family)
 print(p)
 dev.off()
-
-library(emmeans)
 
 # This is time series data, but for simplicity we will fit linear 
 # models to it as it appears not only monotonic but linear.

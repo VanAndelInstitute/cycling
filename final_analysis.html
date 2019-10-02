@@ -1758,7 +1758,7 @@ div.tocify {
 
 <h1 class="title toc-ignore">scRNASeq analysis of cycling cardiomyocytes</h1>
 <p class="author-name">Jovinge Lab</p>
-<h4 class="date">10/3/2019</h4>
+<h4 class="date">10/2/2019</h4>
 
 </div>
 
@@ -1767,26 +1767,33 @@ div.tocify {
 <h2><span class="header-section-number">0.1</span> Introduction</h2>
 <p>This document was prepared in support of our paper:</p>
 <center>
-<p><b>Isolation of cardiomyocytes undergoing mitosis with complete cytokinesis.</b></p>
-<p>Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort M.D. M.S.1,2†, and Stefan Jovinge MD Ph.D1,3,4*</p>
-<p>†Equal contribution</p>
+<p><b>Isolation of cardiomyocytes undergoing mitosis with complete
+cytokinesis.</b></p>
+<p>Hsiao-yun Y. Milliron Ph.D1†, Matthew J. Weiland M.S.1†, Eric J. Kort
+M.D. M.S.1,2†, and Stefan Jovinge MD Ph.D1,3,4*</p>
+†Equal contribution
 </center>
-<p>This document documents how the gene expression data was analyzed and the figures produced or
-supporting data files are available from
-<a href="https://github.com/vanandelinstitute/cycling">the project github repository</a>.
-Compiling (kniting) the source document in RStudio (or from the command line)
-will regenerate key panes off figures 5 and 6 from the source data as they appear in the manuscript. Note that due to the large data files, cloning the repository
-requires that you have <a href="https://git-lfs.github.com">large file support for git</a>
-installed. Otherwise, you will only receive the soft links to the data files, not the data files themselves.</p>
-<p>This repository provides processed data necessary to perform the analysis and generate
-figures. Raw data (both fastqs and 10X genomics mtx files) have been submitted to GEO and 
-are available under accession <b><a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE138270">GSE138270</a></b>.</p>
+<p>This document describes how the gene expression data was analyzed and the
+figures produced for this manuscript. The source file (<code>final_analysis.rmd</code>) for
+this document and supporting data files are available from <a href="https://github.com/vanandelinstitute/cycling">the project github
+repository</a>. Compiling (kniting)
+the source document in RStudio (or from the command line) will regenerate key
+panes of figures 5 and 6 and supplementary figure 4 from the source data as they
+appear in the manuscript. Note that due to the large data files, cloning the
+repository requires that you have <a href="https://git-lfs.github.com">large file support for
+git</a> installed. Otherwise, you will only receive
+the soft links to the data files, not the data files themselves.</p>
+<p>This repository provides processed data necessary to perform the analysis and
+generate figures. Raw data (both fastqs and 10X genomics mtx files) have been
+submitted to GEO and are available under accession
+<a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE138270">GSE138270</a></p>
 </div>
 <div id="pre-requisites" class="section level2">
 <h2><span class="header-section-number">0.2</span> Pre-requisites</h2>
-<p>This analysis requires a number of packages to complete, most notably AUCell, scde, and
-cellRangerRkit (which is no longer supported by 10XGenomics, but is still available on
-the internet). These dependencies may be installed as follows. First some system libraries must be installed from the command line.</p>
+<p>This analysis requires a number of packages to complete, most notably AUCell,
+scde, and cellRangerRkit (which is no longer supported by 10XGenomics, but is
+still available on the internet). These dependencies may be installed as
+follows. First some system libraries must be installed from the command line.</p>
 <pre class="bash"><code>
 # Note that scde relies on Cairo, which in turn relies on the cairo and 
 # libxt dev files.
@@ -1804,6 +1811,7 @@ reqs &lt;- c( &quot;AUCell&quot;,
            &quot;devtools&quot;, 
            &quot;doRNG&quot;,
            &quot;dplyr&quot;,
+           &quot;emmeans&quot;,
            &quot;e1071&quot;,
            &quot;DOSE&quot;, 
            &quot;GFD&quot;,
@@ -1860,8 +1868,7 @@ proliferative potential.</p>
 <div id="incucyte-data-analysis" class="section level2">
 <h2><span class="header-section-number">0.4</span> Incucyte Data Analysis</h2>
 <p>The output from the incucyte was loaded, analyzed, and plotted as follows.</p>
-<pre class="r"><code>library(ggplot2)
-dat &lt;- read.delim(&quot;final_data/incucyte_data.csv&quot;, as.is=TRUE, header=TRUE, sep=&quot;,&quot;)
+<pre class="r"><code>dat &lt;- read.delim(&quot;final_data/incucyte_data.csv&quot;, as.is=TRUE, header=TRUE, sep=&quot;,&quot;)
 dat.m &lt;- melt(dat, id.vars=&quot;Time&quot;)
 p &lt;- ggplot(dat.m, aes(x=Time, y=value, color=variable)) +
   geom_smooth(method=lm) +
@@ -1883,9 +1890,7 @@ print(p)
 dev.off()</code></pre>
 <pre><code>## png 
 ##   2</code></pre>
-<pre class="r"><code>library(emmeans)
-
-# This is time series data, but for simplicity we will fit linear 
+<pre class="r"><code># This is time series data, but for simplicity we will fit linear 
 # models to it as it appears not only monotonic but linear.
 # is there interaction between variable and Time?
 fit &lt;- lm(value ~ Time + variable + Time : variable, data = dat.m)
@@ -2524,7 +2529,7 @@ p &lt;- auc_mccaroll_spg() +
 ## [1] &quot;Permuted Wald Type Test (GFD package):&quot;
 ## Call: 
 ## value ~ class + variable
-## &lt;environment: 0x55bbc71baae8&gt;
+## &lt;environment: 0x56430f024840&gt;
 ## 
 ## Wald-Type Statistic (WTS):
 ##          Test statistic df p-value p-value WTPS
@@ -2613,7 +2618,7 @@ p &lt;- plot_auc(dat.m, comparisons = comparisons, scales=&quot;free&quot;, dryr
 ## [1] &quot;Permuted Wald Type Test (GFD package):&quot;
 ## Call: 
 ## value ~ class + variable
-## &lt;environment: 0x55bc0cd58390&gt;
+## &lt;environment: 0x56436096ae30&gt;
 ## 
 ## Wald-Type Statistic (WTS):
 ##          Test statistic df p-value p-value WTPS
